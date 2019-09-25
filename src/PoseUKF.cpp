@@ -154,7 +154,7 @@ measurementEfforts(const FilterState &state, boost::shared_ptr<uwv_dynamic_model
 {
 
     // set damping parameters
-/*
+
     uwv_dynamic_model::UWVParameters params = dynamic_model->getUWVParameters();
     params.inertia_matrix.block(0,0,2,2) = state.inertia.block(0,0,2,2);
     params.inertia_matrix.block(0,5,2,1) = state.inertia.block(0,2,2,1);
@@ -170,7 +170,7 @@ measurementEfforts(const FilterState &state, boost::shared_ptr<uwv_dynamic_model
     params.damping_matrices[1].block(5,5,1,1) = state.quad_damping.block(2,2,1,1);
        
     dynamic_model->setUWVParameters(params);
-*/
+
     // assume center of rotation to be the body frame
     Eigen::Vector3d water_velocity;
     water_velocity[0] = state.water_velocity[0];
@@ -188,6 +188,7 @@ measurementEfforts(const FilterState &state, boost::shared_ptr<uwv_dynamic_model
     // assume the angular acceleration to be zero
     acceleration_6d << acceleration_body, base::Vector3d::Zero();
 
+
 dynamic_model_svr::SVR svr;
 // vector X that has both velocityand accelaration components
 base::VectorXd X;
@@ -198,22 +199,42 @@ X[3] = acceleration_6d[0];
 X[4] = acceleration_6d[1];
 X[5] = acceleration_6d[5];
 
+Scaler scaler;
+Scaler::scale_params csp;
+load(csp,"scaler_params");
+scaler.setScale_Params(csp);
+Eigen::ArrayXXd scaled_X = scaler.transform(X);
+//
+//
+
+dynamic_model_svr::SVR::SVRParams paramsSVR;
+
+load(paramsSVR,"params");
+svr.setParams(paramsSVR);
+
+Eigen::MatrixXd X_block = scaled_X.block<6200,6>(0,0);
+
 // loading the Y labels 
 dynamic_model_svr::SVR::SVRFitOutput  Y;
-load (Y, "fitOutput");
+load (Y, "fitOutput_X");
 // 
-Eigen::Matrix<double, Dynamic, Dynamic, RowMajor> s = Pinv(cov(X));
+
+Eigen::Matrix<double, Dynamic, Dynamic, RowMajor> s ;
 //kernelizing X
-Eigen::MatrixXd gram_X = mahalanobis_kernel(X,s);
+load(s,"s_mat");
+Eigen::MatrixXd gram_X = mahalanobis_kernel(X_block,s);
 
 
 std::cout << "output_sklearn:" << svr.predict_sklearn(gram_X, Y) << std::endl;
 
-base::Vector6d efforts = svr.predict_sklearn(gram_X, Y);
-Eigen::MatrixXd efforts_ = svr.predict_sklearn(gram_X, Y);
-// serializing the output 
-save(efforts_,"efforts_svr");
+base::Vector6d efforts_X = svr.predict_sklearn(gram_X, Y);
 
+//Eigen::MatrixXd efforts_X = svr.predict_sklearn(gram_X, Y);
+// serializing the output 
+//save(efforts_,"efforts_svr");
+
+
+base::Vector6d efforts = dynamic_model->calcEfforts(acceleration_6d, velocity_6d, state.orientation);
     // returns the expected forces and torques given the current state
     return efforts;
 }
