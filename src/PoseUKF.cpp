@@ -212,7 +212,6 @@ dynamic_model_svr::SVR::SVRParams paramsSVR;
 load(paramsSVR,"params");
 svr.setParams(paramsSVR);
 
-Eigen::MatrixXd X_block = scaled_X.block<6200,6>(0,0);
 
 // loading the Y labels 
 dynamic_model_svr::SVR::SVRFitOutput  Y;
@@ -222,12 +221,12 @@ load (Y, "fitOutput_X");
 Eigen::Matrix<double, Dynamic, Dynamic, RowMajor> s ;
 //kernelizing X
 load(s,"s_mat");
-Eigen::MatrixXd gram_X = mahalanobis_kernel(X_block,s);
+Eigen::MatrixXd gram_X = mahalanobis_kernel(scaled_X,s);
 
 
 std::cout << "output_sklearn:" << svr.predict_sklearn(gram_X, Y) << std::endl;
 
-base::Vector6d efforts_X = svr.predict_sklearn(gram_X, Y);
+Eigen::VectorXd efforts_X = svr.predict_sklearn(gram_X, Y);
 
 //Eigen::MatrixXd efforts_X = svr.predict_sklearn(gram_X, Y);
 // serializing the output 
@@ -236,6 +235,7 @@ base::Vector6d efforts_X = svr.predict_sklearn(gram_X, Y);
 
 base::Vector6d efforts = dynamic_model->calcEfforts(acceleration_6d, velocity_6d, state.orientation);
     // returns the expected forces and torques given the current state
+efforts[0] = efforts_X[0];
     return efforts;
 }
 
