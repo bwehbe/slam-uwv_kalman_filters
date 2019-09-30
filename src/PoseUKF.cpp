@@ -9,7 +9,7 @@
 #include <dynamic_model_svr/Utils.hpp>
 #include <dynamic_model_svr/SVR.hpp>
 #include <dynamic_model_svr/serialize.hpp>
-
+#include <dynamic_model_svr/svr_model_filter.hpp>
 
 using namespace uwv_kalman_filters;
 
@@ -189,57 +189,39 @@ measurementEfforts(const FilterState &state, boost::shared_ptr<uwv_dynamic_model
     acceleration_6d << acceleration_body, base::Vector3d::Zero();
 
 
-dynamic_model_svr::SVR svr;
 // vector X that has both velocityand accelaration components
 base::VectorXd X;
-X[0] = velocity_6d[0];
-X[1] = velocity_6d[1];
-X[2] = velocity_6d[5];
-X[3] = acceleration_6d[0];
-X[4] = acceleration_6d[1];
-X[5] = acceleration_6d[5];
 
-Scaler scaler;
-Scaler::scale_params csp;
-load(csp,"scaler_params");
-scaler.setScale_Params(csp);
-Eigen::ArrayXXd scaled_X = scaler.transform(X);
-//
-//
+  X[0] = velocity_6d[0];
+  X[1] = velocity_6d[1];
+  X[2] = velocity_6d[5];
+  X[3] = acceleration_6d[0];
+  X[4] = acceleration_6d[1];
+  X[5] = acceleration_6d[5];
 
-dynamic_model_svr::SVR::SVRParams paramsSVR;
+std::string f_names [6];
+f_names [0] = "scaler_params";  
+f_names [1] ="params";
+f_names [2] ="fitOutput_X";
+f_names [3] = "tobecreated1";
+f_names [4] = "tobecreated2";
+f_names [5] ="s_mat";
 
-load(paramsSVR,"params");
-svr.setParams(paramsSVR);
+Eigen:: VectorXd efforts_sklearn = filter_measurement_svr_model(X,f_names[0],f_names[1],f_names[2],f_names[3],f_names[4],f_names[5]);
 
 
-// loading the Y labels 
-dynamic_model_svr::SVR::SVRFitOutput  Y;
-load (Y, "fitOutput_X");
-// 
 
-Eigen::Matrix<double, Dynamic, Dynamic, RowMajor> s ;
-//kernelizing X
-load(s,"s_mat");
-Eigen::MatrixXd gram_X = mahalanobis_kernel(scaled_X,s);
+base::Vector6d efforts = dynamic_model -> calcEfforts(acceleration_6d, velocity_6d, state.orientation);
 
+// returns the expected forces and torques given the current state
 
-std::cout << "output_sklearn:" << svr.predict_sklearn(gram_X, Y) << std::endl;
+efforts[0] = efforts_sklearn[0];
+efforts[1] = efforts_sklearn[1];
+efforts[5] = efforts_sklearn[2];
 
-Eigen::VectorXd efforts_X = svr.predict_sklearn(gram_X, Y);
+return efforts;
 
-//Eigen::MatrixXd efforts_X = svr.predict_sklearn(gram_X, Y);
-// serializing the output 
-//save(efforts_,"efforts_svr");
-
-
-base::Vector6d efforts = dynamic_model->calcEfforts(acceleration_6d, velocity_6d, state.orientation);
-    // returns the expected forces and torques given the current state
-efforts[0] = efforts_X[0];
-    return efforts;
 }
-
-/* This measurement model allows to constrain the velocity based on the motion model in the absence of effort measurements */
 
 
 
