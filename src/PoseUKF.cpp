@@ -190,34 +190,39 @@ measurementEfforts(const FilterState &state, boost::shared_ptr<uwv_dynamic_model
 
 
 // vector X that has both velocityand accelaration components
-base::VectorXd X;
+ base::VectorXd X;
 
-  X[0] = velocity_6d[0];
-  X[1] = velocity_6d[1];
-  X[2] = velocity_6d[5];
-  X[3] = acceleration_6d[0];
-  X[4] = acceleration_6d[1];
-  X[5] = acceleration_6d[5];
+   X[0] = velocity_6d[0];
+   X[1] = velocity_6d[1];
+   X[2] = velocity_6d[5];
+   X[3] = acceleration_6d[0];
+   X[4] = acceleration_6d[1];
+   X[5] = acceleration_6d[5];
 
-std::string f_names [6];
-f_names [0] = "scaler_params";  
-f_names [1] ="params";
-f_names [2] ="fitOutput_X";
-f_names [3] = "tobecreated1";
-f_names [4] = "tobecreated2";
-f_names [5] ="s_mat";
+ std::string f_names [8];
 
-Eigen:: VectorXd efforts_sklearn = filter_measurement_svr_model(X,f_names[0],f_names[1],f_names[2],f_names[3],f_names[4],f_names[5]);
+   f_names [0] = "scaler_params";  
+   f_names [1] ="params";
+   f_names [2] = "tobe1";
+   f_names [3] = "svrpramstobe2";
+   f_names [4] ="fitOutput_X";
+   f_names [4] = "tobecreated1";
+   f_names [6] = "tobecreated2";
+   f_names [7] ="s_mat";
 
+
+SVRThreeDOFModel svr_3ofM;
+
+Eigen:: VectorXd efforts_sklearn = svr_3ofM.predict_efforts(X,f_names[0],f_names[1],f_names[2],f_names[3],f_names[4],f_names[5],f_names[6],f_names[7]);
 
 
 base::Vector6d efforts = dynamic_model -> calcEfforts(acceleration_6d, velocity_6d, state.orientation);
 
 // returns the expected forces and torques given the current state
 
-efforts[0] = efforts_sklearn[0];
-efforts[1] = efforts_sklearn[1];
-efforts[5] = efforts_sklearn[2];
+   efforts[0] = efforts_sklearn[0];
+   efforts[1] = efforts_sklearn[1];
+   efforts[5] = efforts_sklearn[2];
 
 return efforts;
 
