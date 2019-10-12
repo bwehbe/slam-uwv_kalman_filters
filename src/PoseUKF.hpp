@@ -7,6 +7,7 @@
 #include <uwv_dynamic_model/DataTypes.hpp>
 #include "PoseState.hpp"
 #include "PoseUKFConfig.hpp"
+#include <dynamic_model_svr/SVRThreeDOFModel.hpp>
 
 namespace uwv_dynamic_model
 {
@@ -129,6 +130,7 @@ protected:
     LinDampingType::vectorized_type lin_damping_offset;
     QuadDampingType::vectorized_type quad_damping_offset;
     double water_density_offset;
+    boost::shared_ptr<dynamic_model_svr::SVRThreeDOFModel> svrThreeDOFModel;
 };
 
 }

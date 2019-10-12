@@ -6,6 +6,7 @@
 #include <pose_estimation/GravitationalModel.hpp>
 #include <pose_estimation/GeographicProjection.hpp>
 #include <mtk/types/S2.hpp>
+#include <dynamic_model_svr/SVRThreeDOFModel.hpp>
 
 using namespace uwv_kalman_filters;
 
@@ -145,9 +146,13 @@ measurementWaterCurrents(const FilterState &state, double cell_weighting)
 template <typename FilterState>
 Eigen::Matrix<TranslationType::scalar, 6, 1>
 measurementEfforts(const FilterState &state, boost::shared_ptr<uwv_dynamic_model::DynamicModel> dynamic_model,
-                   const Eigen::Vector3d& imu_in_body, const Eigen::Vector3d& rotation_rate_body)
+                   const Eigen::Vector3d& imu_in_body, const Eigen::Vector3d& rotation_rate_body,
+                   boost::shared_ptr<dynamic_model_svr::SVRThreeDOFModel> svrThreeDOFModel)
+
 {
+
     // set damping parameters
+
     uwv_dynamic_model::UWVParameters params = dynamic_model->getUWVParameters();
     params.inertia_matrix.block(0,0,2,2) = state.inertia.block(0,0,2,2);
     params.inertia_matrix.block(0,5,2,1) = state.inertia.block(0,2,2,1);
@@ -181,13 +186,31 @@ measurementEfforts(const FilterState &state, boost::shared_ptr<uwv_dynamic_model
     // assume the angular acceleration to be zero
     acceleration_6d << acceleration_body, base::Vector3d::Zero();
 
-    base::Vector6d efforts = dynamic_model->calcEfforts(acceleration_6d, velocity_6d, state.orientation);
+
+    // vector X that has both velocityand accelaration components
+     Eigen::ArrayXXd X(1,6);
+
+    X << velocity_6d[0], velocity_6d[1], velocity_6d[5],
+         acceleration_6d[0], acceleration_6d[1], acceleration_6d[5];
+
+
+    Eigen::Vector3d efforts_svr = svrThreeDOFModel->predict_efforts(X);
+
+
+    base::Vector6d efforts = dynamic_model -> calcEfforts(acceleration_6d, velocity_6d, state.orientation);
 
     // returns the expected forces and torques given the current state
-    return efforts;
+
+       efforts[0] = efforts_svr[0];
+       efforts[1] = efforts_svr[1];
+       efforts[5] = efforts_svr[2];
+
+return efforts;
+
 }
 
-/* This measurement model allows to constrain the velocity based on the motion model in the absence of effort measurements */
+
+
 template <typename FilterState>
 Eigen::Matrix<TranslationType::scalar, 6, 1>
 constrainVelocity(const FilterState &state, boost::shared_ptr<uwv_dynamic_model::DynamicModel> dynamic_model,
@@ -280,6 +303,10 @@ PoseUKF::PoseUKF(const State& initial_state, const Covariance& state_cov,
     water_density_offset = initial_state.water_density(0);
 
     projection.reset(new pose_estimation::GeographicProjection(location.latitude, location.longitude));
+
+    svrThreeDOFModel->setScaler("scaler_params");
+    svrThreeDOFModel->setSVRparams("params_x_rbf", "params_y_rbf" ,"params_yaw_rbf");
+    svrThreeDOFModel->setFitoutput("fitout_x_rbf", "fitout_y_rbf", "fitout_yaw_rbf");
 }
 
 
@@ -387,7 +414,7 @@ void PoseUKF::integrateMeasurement(const BodyEffortsMeasurement& body_efforts, b
     else
     {
         ukf->update(body_efforts.mu, boost::bind(measurementEfforts<State>, _1, dynamic_model, filter_parameter.imu_in_body,
-                                                 getRotationRate()),
+                                                 getRotationRate(), svrThreeDOFModel),
                     boost::bind(ukfom::id< BodyEffortsMeasurement::Cov >, body_efforts.cov),
                     ukfom::accept_any_mahalanobis_distance<State::scalar>);
     }
