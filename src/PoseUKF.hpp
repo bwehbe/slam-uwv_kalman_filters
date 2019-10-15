@@ -130,7 +130,7 @@ protected:
     LinDampingType::vectorized_type lin_damping_offset;
     QuadDampingType::vectorized_type quad_damping_offset;
     double water_density_offset;
-    boost::shared_ptr<dynamic_model_svr::SVRThreeDOFModel> svrThreeDOFModel;
+    dynamic_model_svr::SVRThreeDOFModel svrThreeDOFModel;
 };
 
 }

@@ -147,7 +147,7 @@ template <typename FilterState>
 Eigen::Matrix<TranslationType::scalar, 6, 1>
 measurementEfforts(const FilterState &state, boost::shared_ptr<uwv_dynamic_model::DynamicModel> dynamic_model,
                    const Eigen::Vector3d& imu_in_body, const Eigen::Vector3d& rotation_rate_body,
-                   boost::shared_ptr<dynamic_model_svr::SVRThreeDOFModel> svrThreeDOFModel)
+                   dynamic_model_svr::SVRThreeDOFModel &svrThreeDOFModel)
 
 {
 
@@ -186,29 +186,51 @@ measurementEfforts(const FilterState &state, boost::shared_ptr<uwv_dynamic_model
     // assume the angular acceleration to be zero
     acceleration_6d << acceleration_body, base::Vector3d::Zero();
 
-
-    // vector X that has both velocityand accelaration components
-     Eigen::ArrayXXd X(1,6);
-
-    X << velocity_6d[0], velocity_6d[1], velocity_6d[5],
-         acceleration_6d[0], acceleration_6d[1], acceleration_6d[5];
-
-
-    Eigen::Vector3d efforts_svr = svrThreeDOFModel->predict_efforts(X);
-
-
     base::Vector6d efforts = dynamic_model -> calcEfforts(acceleration_6d, velocity_6d, state.orientation);
-
     // returns the expected forces and torques given the current state
-
-       efforts[0] = efforts_svr[0];
-       efforts[1] = efforts_svr[1];
-       efforts[5] = efforts_svr[2];
 
 return efforts;
 
 }
 
+
+
+template <typename FilterState>
+Eigen::Matrix<TranslationType::scalar, 3, 1>
+measurementEffortsSVR(const FilterState &state, const Eigen::Vector3d& imu_in_body, const Eigen::Vector3d& rotation_rate_body,
+                   dynamic_model_svr::SVRThreeDOFModel &svrThreeDOFModel)
+
+{
+
+    // assume center of rotation to be the body frame
+    Eigen::Vector3d water_velocity;
+    water_velocity[0] = state.water_velocity[0];
+    water_velocity[1] = state.water_velocity[1];
+    water_velocity[2] = 0; // start with the assumption of zero water current velocity in the Z
+
+    Eigen::Vector3d velocity_body = state.orientation.inverse() * (state.velocity) - rotation_rate_body.cross(imu_in_body);
+    velocity_body = velocity_body - state.orientation.inverse() * water_velocity;
+    base::Vector6d velocity_6d;
+    velocity_6d << velocity_body, rotation_rate_body;
+
+    // assume center of rotation to be the body frame
+    Eigen::Vector3d acceleration_body = state.orientation.inverse() * state.acceleration - rotation_rate_body.cross(rotation_rate_body.cross(imu_in_body));
+    base::Vector6d acceleration_6d;
+    // assume the angular acceleration to be zero
+    acceleration_6d << acceleration_body, base::Vector3d::Zero();
+
+
+    // vector X that has both velocity and accelaration components
+    Eigen::ArrayXXd X(1,6);
+
+    X << velocity_6d[0], velocity_6d[1], velocity_6d[5],
+         acceleration_6d[0], acceleration_6d[1], acceleration_6d[5];
+
+    Eigen::Vector3d efforts_svr = svrThreeDOFModel.predict_efforts_with_load(X);
+
+return efforts_svr;
+
+}
 
 
 template <typename FilterState>
@@ -304,9 +326,10 @@ PoseUKF::PoseUKF(const State& initial_state, const Covariance& state_cov,
 
     projection.reset(new pose_estimation::GeographicProjection(location.latitude, location.longitude));
 
-    svrThreeDOFModel->setScaler("scaler_params");
-    svrThreeDOFModel->setSVRparams("params_x_rbf", "params_y_rbf" ,"params_yaw_rbf");
-    svrThreeDOFModel->setFitoutput("fitout_x_rbf", "fitout_y_rbf", "fitout_yaw_rbf");
+    std::string model_directory="/home/dfki.uni-bremen.de/bwehbe/rock-bootstraps/silana-dev/control/dynamic_model_svr/fitted_models/rbf_kernel/";
+    svrThreeDOFModel.setScaler(model_directory+"scaler_params");
+    svrThreeDOFModel.setSVRparams(model_directory+"params_x_rbf", model_directory+"params_y_rbf" ,model_directory+"params_yaw_rbf");
+    svrThreeDOFModel.setFitoutput(model_directory+"fitout_x_rbf", model_directory+"fitout_y_rbf", model_directory+"fitout_yaw_rbf");
 }
 
 
@@ -413,10 +436,20 @@ void PoseUKF::integrateMeasurement(const BodyEffortsMeasurement& body_efforts, b
     }
     else
     {
-        ukf->update(body_efforts.mu, boost::bind(measurementEfforts<State>, _1, dynamic_model, filter_parameter.imu_in_body,
+        Eigen::Matrix<double, 3, 1> x_y_yaw_efforts;
+        x_y_yaw_efforts << body_efforts.mu[0], body_efforts.mu[1], body_efforts.mu[5];
+        Eigen::Matrix<double, 3, 3> x_y_yaw_efforts_cov;
+        x_y_yaw_efforts_cov << body_efforts.cov(0,0), body_efforts.cov(0,1), body_efforts.cov(0,5),
+                               body_efforts.cov(1,0), body_efforts.cov(1,1), body_efforts.cov(1,5),
+                               body_efforts.cov(5,0), body_efforts.cov(5,1), body_efforts.cov(5,5);
+        ukf->update(x_y_yaw_efforts, boost::bind(measurementEffortsSVR<State>, _1, filter_parameter.imu_in_body,
+                                                 getRotationRate(), svrThreeDOFModel),
+                    boost::bind(ukfom::id< Eigen::Matrix<double, 3, 3> >, x_y_yaw_efforts_cov),
+                    ukfom::accept_any_mahalanobis_distance<State::scalar>);
+        /*ukf->update(body_efforts.mu, boost::bind(measurementEfforts<State>, _1, dynamic_model, filter_parameter.imu_in_body,
                                                  getRotationRate(), svrThreeDOFModel),
                     boost::bind(ukfom::id< BodyEffortsMeasurement::Cov >, body_efforts.cov),
-                    ukfom::accept_any_mahalanobis_distance<State::scalar>);
+                    ukfom::accept_any_mahalanobis_distance<State::scalar>);*/
     }
 }
 
